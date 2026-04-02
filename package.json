@@ -1,0 +1,56 @@
+{
+  "name": "openclaw-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron desktop shell for hosting the local OpenClaw dashboard and gateway controls on Windows.",
+  "main": "dist/main.js",
+  "author": "OpenClaw workspace",
+  "license": "MIT",
+  "keywords": ["electron", "openclaw", "desktop", "gateway", "dashboard", "windows"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RedWoodOG/openclaw-desktop"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "clean": "rimraf dist release",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "dev": "npm run build && electron .",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify": "node scripts/verify.mjs",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "com.openclaw.desktop",
+    "productName": "OpenClaw Desktop",
+    "files": [
+      "dist/**/*",
+      "renderer/**/*",
+      "build/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  },
+  "dependencies": {
+    "electron-log": "^5.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.9.2"
+  }
+}
