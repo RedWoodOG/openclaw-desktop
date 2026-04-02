@@ -28,15 +28,47 @@ OpenClaw Desktop wraps the OpenClaw gateway dashboard in a native Electron windo
 - Single-instance lock &mdash; only one window at a time
 - Recovery page with gateway controls if something goes wrong
 
-## Prerequisites
+## First-Time Setup
 
-| Requirement | How to get it |
-|---|---|
-| **Node.js** >= 18 | [nodejs.org](https://nodejs.org) |
-| **OpenClaw CLI** | `npm install -g openclaw` |
-| **Running gateway** | `openclaw gateway start` |
+If you've never used OpenClaw before, you'll need to set it up once before the desktop app can connect. This takes about 2 minutes.
 
-The app connects to the gateway at `http://127.0.0.1:18789` by default. Make sure the gateway is running before launching.
+### Step 1: Install Node.js
+
+Download and install **Node.js 18+** from [nodejs.org](https://nodejs.org). This is required to run the OpenClaw CLI and to build the desktop app.
+
+### Step 2: Install the OpenClaw CLI
+
+```bash
+npm install -g openclaw
+```
+
+### Step 3: Run onboarding
+
+```bash
+openclaw onboard
+```
+
+This interactive wizard walks you through:
+- Choosing an AI provider (OpenAI, Anthropic, OpenRouter, local models via Ollama, and many more)
+- Entering your API key
+- Setting up the gateway as a background service
+- Optionally connecting messaging channels (Telegram, Discord, WhatsApp, etc.)
+
+Once onboarding completes, your gateway is configured and ready.
+
+### Step 4: Start the gateway
+
+```bash
+openclaw gateway start
+```
+
+The gateway runs in the background on `http://127.0.0.1:18789`. On Windows, it registers as a Scheduled Task that auto-starts on login, so you typically only need to do this once.
+
+### Step 5: Launch the desktop app
+
+Now you're ready to use OpenClaw Desktop. It will auto-detect the gateway, authenticate, and load the dashboard.
+
+> **Already have OpenClaw set up?** Skip to Quick Start below.
 
 ## Quick Start
 
@@ -47,7 +79,7 @@ npm install
 npm run dev
 ```
 
-That's it. The app will build, launch, detect your gateway, grab a token, and load the dashboard.
+The app will build, launch, detect your gateway, grab a token, and load the dashboard.
 
 ## Build a Standalone Installer
 
