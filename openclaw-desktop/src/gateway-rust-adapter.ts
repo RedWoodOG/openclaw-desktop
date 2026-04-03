@@ -48,33 +48,32 @@ async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
 }
 
 async function postRpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
-  const url = `${desktopConfig.gateway.baseUrl.replace(/\/$/, '')}/rpc`;
-  const httpControlUrl = `http://127.0.0.1:${desktopConfig.gateway.httpControlPort}/rpc`;
+  // Only target the Rust HTTP control port — never fall back to the stock gateway
+  // to avoid accidentally shutting down or affecting the wrong runtime.
+  const rpcUrl = `http://127.0.0.1:${desktopConfig.gateway.httpControlPort}/rpc`;
 
-  // Try the HTTP control port first (preferred for Rust runtime).
-  for (const rpcUrl of [httpControlUrl, url]) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), desktopConfig.gateway.commandTimeoutMs);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), desktopConfig.gateway.commandTimeoutMs);
 
-      const response = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: `desktop-${Date.now()}`, method, params }),
-        signal: controller.signal,
-      });
+  try {
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: `desktop-${Date.now()}`, method, params }),
+      signal: controller.signal,
+    });
 
-      clearTimeout(timeout);
+    clearTimeout(timeout);
 
-      if (response.ok) {
-        return response.json();
-      }
-    } catch {
-      // Try next URL.
+    if (response.ok) {
+      return response.json();
     }
-  }
 
-  throw new Error(`RPC call ${method} failed on all endpoints`);
+    throw new Error(`RPC ${method} returned HTTP ${response.status}`);
+  } catch (error) {
+    clearTimeout(timeout);
+    throw new Error(`RPC call ${method} failed: ${normalizeError(error)}`);
+  }
 }
 
 /**
@@ -251,13 +250,20 @@ export async function startGatewayIntegrationPoint(): Promise<GatewayLaunchResul
     });
 
     rustProcessPid = rustProcess.pid ?? null;
-    rustProcess.unref();
+
+    rustProcess.on('error', (error) => {
+      log.error('Rust runtime process error', { error: normalizeError(error), pid: rustProcessPid });
+      rustProcess = null;
+      rustProcessPid = null;
+    });
 
     rustProcess.on('exit', (code) => {
       log.info('Rust runtime process exited', { code, pid: rustProcessPid });
       rustProcess = null;
       rustProcessPid = null;
     });
+
+    rustProcess.unref();
   } catch (error) {
     return {
       attempted: true,

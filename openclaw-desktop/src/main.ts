@@ -29,9 +29,6 @@ app.setAppUserModelId(desktopConfig.appUserModelId);
 
 const preloadPath = path.join(__dirname, 'preload.js');
 const statusPagePath = path.join(__dirname, '..', 'renderer', 'status.html');
-const dashboardAuthIssuePattern =
-  /unauthorized|gateway token missing|invalid token|token mismatch|forbidden|not authorized/i;
-
 function createMainWindow(): BrowserWindow {
   const iconPath = path.join(__dirname, '..', 'build', 'icon.png');
   const window = new BrowserWindow({
@@ -96,14 +93,6 @@ function createMainWindow(): BrowserWindow {
   });
 
   return window;
-}
-
-function withGatewayDetail(state: GatewayState, detail: string, kind = state.kind): GatewayState {
-  return {
-    ...state,
-    kind,
-    detail,
-  };
 }
 
 function buildDashboardSessionSeed(dashboardUrl: string): DashboardSessionSeed {
@@ -192,37 +181,6 @@ async function seedDashboardSession(window: BrowserWindow, seed: DashboardSessio
   }
 }
 
-async function detectDashboardAuthIssue(window: BrowserWindow): Promise<string | null> {
-  try {
-    const sample = await window.webContents.executeJavaScript(`(() => {
-      const title = document.title || '';
-      const text = (document.body?.innerText || '').slice(0, 4000);
-      return [title, text].filter(Boolean).join('\n');
-    })()`, true);
-
-    if (typeof sample === 'string') {
-      const match = sample.match(dashboardAuthIssuePattern);
-      if (match) {
-        return match[0];
-      }
-    }
-  } catch (error) {
-    log.warn('Dashboard auth probe failed', error);
-  }
-
-  return null;
-}
-
-async function clearDashboardOriginState(window: BrowserWindow): Promise<void> {
-  try {
-    await window.webContents.session.clearStorageData({
-      origin: desktopConfig.gateway.baseUrl,
-      storages: ['cookies', 'localstorage', 'indexdb', 'serviceworkers'],
-    });
-  } catch (error) {
-    log.warn('Failed to clear dashboard origin storage', error);
-  }
-}
 
 async function loadRecoveryPage(window: BrowserWindow, state?: GatewayState): Promise<void> {
   if (state) {
@@ -254,6 +212,11 @@ async function tryLoadDashboard(window: BrowserWindow): Promise<boolean> {
     log.error('Failed to load dashboard URL', error);
     return false;
   }
+
+  // Seed browser storage with gateway connection details so the dashboard
+  // auto-connects without showing a login screen.
+  const seed = buildDashboardSessionSeed(dashboardUrl);
+  await seedDashboardSession(window, seed);
 
   // Inject custom window controls (frameless window).
   try {
