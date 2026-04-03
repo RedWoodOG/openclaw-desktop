@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenClaw Desktop</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, Segoe UI, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at top, #1e293b 0%, #0f172a 55%);
+      }
+      .panel {
+        width: min(960px, calc(100vw - 40px));
+        padding: 28px;
+        border-radius: 20px;
+        background: rgba(15, 23, 42, 0.9);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.45);
+      }
+      h1, h2 { margin-top: 0; }
+      p, li, dd, dt, code { line-height: 1.55; }
+      p, li, dd { color: #cbd5e1; }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        padding: 7px 12px;
+        font-size: 0.88rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+      .badge[data-kind="healthy"] { background: rgba(34, 197, 94, 0.2); color: #86efac; }
+      .badge[data-kind="starting"] { background: rgba(56, 189, 248, 0.16); color: #7dd3fc; }
+      .badge[data-kind="auth-required"], .badge[data-kind="cli-missing"] { background: rgba(251, 191, 36, 0.18); color: #fde68a; }
+      .badge[data-kind="stopped"], .badge[data-kind="unreachable"], .badge[data-kind="startup-failed"], .badge[data-kind="status-unknown"] { background: rgba(248, 113, 113, 0.16); color: #fca5a5; }
+      .intro { margin-bottom: 20px; }
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: 22px 0 26px;
+      }
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 12px 18px;
+        font-size: 0.95rem;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.55; cursor: progress; }
+      .primary { background: #38bdf8; color: #082f49; }
+      .secondary { background: #1e293b; color: #e2e8f0; border: 1px solid #475569; }
+      .danger { background: #7f1d1d; color: #fecaca; border: 1px solid #b91c1c; }
+      .ghost { background: transparent; color: #cbd5e1; border: 1px solid #334155; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        padding: 16px;
+        border-radius: 16px;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+      }
+      dl { margin: 0; display: grid; grid-template-columns: minmax(120px, 160px) 1fr; gap: 8px 12px; }
+      dt { color: #94a3b8; font-weight: 700; }
+      dd { margin: 0; overflow-wrap: anywhere; }
+      pre {
+        white-space: pre-wrap;
+        background: rgba(2, 6, 23, 0.6);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        padding: 16px;
+        border-radius: 16px;
+        margin-top: 20px;
+        max-height: 340px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="panel">
+      <div class="intro">
+        <span class="badge" id="statusBadge" data-kind="status-unknown">Checking runtime…</span>
+        <h1>OpenClaw Desktop runtime control</h1>
+        <p>
+          This shell now attaches to the real local OpenClaw runtime pattern on this machine: a Windows service-managed
+          gateway controlled through the OpenClaw CLI. On startup it will try to recover by starting the gateway if needed,
+          then request a fresh tokenized dashboard URL. If that still fails, this page stays visible as a truthful recovery
+          and control surface instead of pretending the runtime is simply off.
+        </p>
+        <p id="summary">Checking gateway state…</p>
+      </div>
+
+      <div class="actions">
+        <button class="primary" id="refresh">Refresh status</button>
+        <button class="secondary" id="start">Start gateway service</button>
+        <button class="secondary" id="restart">Restart gateway service</button>
+        <button class="danger" id="stop">Stop gateway service</button>
+        <button class="ghost" id="open">Request fresh dashboard session</button>
+      </div>
+
+      <div class="grid">
+        <section class="card">
+          <h2>Observed runtime</h2>
+          <dl id="observed"></dl>
+        </section>
+        <section class="card">
+          <h2>Configured shell paths</h2>
+          <dl id="configured"></dl>
+        </section>
+      </div>
+
+      <pre id="output">Waiting for gateway diagnostics…</pre>
+    </main>
+    <script>
+      const output = document.getElementById('output');
+      const summary = document.getElementById('summary');
+      const statusBadge = document.getElementById('statusBadge');
+      const observed = document.getElementById('observed');
+      const configured = document.getElementById('configured');
+      const buttons = Array.from(document.querySelectorAll('button'));
+
+      function bool(value) {
+        return value ? 'yes' : 'no';
+      }
+
+      function htmlEscape(value) {
+        return String(value)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;');
+      }
+
+      function renderPairs(target, pairs) {
+        target.innerHTML = pairs
+          .filter(([, value]) => value !== undefined && value !== null && value !== '')
+          .map(([label, value]) => `<dt>${htmlEscape(label)}</dt><dd>${htmlEscape(value)}</dd>`)
+          .join('');
+      }
+
+      function commandPreview(result) {
+        if (!result) return 'No command output recorded.';
+        const lines = [
+          `Command: openclaw ${result.args.join(' ')}`,
+          `OK: ${result.ok}`,
+          `Duration: ${result.durationMs}ms`,
+        ];
+        if (result.exitCode !== undefined) lines.push(`Exit code: ${result.exitCode}`);
+        if (result.error) lines.push(`Error: ${result.error}`);
+        if (result.output) {
+          lines.push('', result.output);
+        }
+        return lines.join('\n');
+      }
+
+      function renderState(state, label = 'Gateway state') {
+        statusBadge.dataset.kind = state.kind;
+        statusBadge.textContent = state.healthy ? 'Gateway healthy' : `Gateway ${state.kind}`;
+
+        summary.textContent = state.detail || 'No extra detail reported.';
+
+        renderPairs(observed, [
+          ['Kind', state.kind],
+          ['Healthy', bool(state.healthy)],
+          ['Checked at', state.checkedAt],
+          ['Service registered', bool(state.facts?.serviceRegistered)],
+          ['Service type', state.facts?.serviceType],
+          ['Bind mode', state.facts?.bindMode],
+          ['Port', state.facts?.port],
+          ['Listening', state.facts?.listeningAddress],
+          ['Runtime running', bool(state.facts?.runtimeRunning)],
+          ['RPC probe ok', bool(state.facts?.rpcProbeOk)],
+          ['Providers', state.facts?.providers?.join(', ')],
+          ['Log file', state.facts?.fileLogsPath],
+        ]);
+
+        renderPairs(configured, [
+          ['Gateway URL', state.url],
+          ['Dashboard URL', state.facts?.dashboardUrl || `${state.url}/`],
+          ['CLI config path', state.facts?.configPath],
+          ['Service config path', state.facts?.serviceConfigPath],
+          ['Service file', state.facts?.serviceFile],
+        ]);
+
+        output.textContent = [
+          label,
+          '',
+          commandPreview(state.commandResults?.status),
+          '',
+          commandPreview(state.commandResults?.health),
+          '',
+          JSON.stringify(state, null, 2),
+        ].join('\n');
+      }
+
+      function renderActionResult(result) {
+        if (result.state) {
+          renderState(result.state, `Gateway ${result.action} result`);
+        }
+
+        output.textContent = [
+          `Gateway ${result.action} result`,
+          '',
+          `Attempted: ${result.attempted}`,
+          `OK: ${result.ok}`,
+          `Message: ${result.message}`,
+          '',
+          commandPreview(result.command),
+          '',
+          result.state ? JSON.stringify(result.state, null, 2) : 'No state returned.',
+        ].join('\n');
+      }
+
+      async function runAction(buttonId, action) {
+        buttons.forEach((button) => (button.disabled = true));
+        statusBadge.dataset.kind = action === 'stop' ? 'stopped' : 'starting';
+        statusBadge.textContent = action === 'stop' ? 'Stopping gateway…' : `${action[0].toUpperCase()}${action.slice(1)}ing gateway…`;
+        summary.textContent = `Running openclaw gateway ${action} and verifying the runtime afterwards.`;
+
+        try {
+          const result = await window.openclawDesktop[buttonId]();
+          renderActionResult(result);
+        } catch (error) {
+          output.textContent = `Gateway ${action} failed\n\n${error instanceof Error ? error.message : String(error)}`;
+        } finally {
+          buttons.forEach((button) => (button.disabled = false));
+        }
+      }
+
+      async function refresh() {
+        buttons.forEach((button) => (button.disabled = true));
+        try {
+          const state = await window.openclawDesktop.refreshGatewayState();
+          renderState(state);
+        } finally {
+          buttons.forEach((button) => (button.disabled = false));
+        }
+      }
+
+      document.getElementById('refresh').addEventListener('click', refresh);
+      document.getElementById('start').addEventListener('click', () => runAction('startGateway', 'start'));
+      document.getElementById('restart').addEventListener('click', () => runAction('restartGateway', 'restart'));
+      document.getElementById('stop').addEventListener('click', () => runAction('stopGateway', 'stop'));
+      document.getElementById('open').addEventListener('click', () => window.openclawDesktop.showDashboard());
+
+      window.openclawDesktop
+        .getGatewayState()
+        .then((state) => renderState(state))
+        .catch((error) => {
+          output.textContent = `Could not load gateway state\n\n${error instanceof Error ? error.message : String(error)}`;
+        });
+    </script>
+  </body>
+</html>
